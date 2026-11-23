@@ -224,3 +224,7 @@ Apps desinstalados de `/data` só voltam com reset de fábrica.
 Feito num aparelho próprio. Use por sua conta e risco: nada aqui mexe no bootloader ou nas
 partições do sistema, mas desativar o pacote errado pode deixar a tela inicial preta até ser
 revertido pelo ADB.
+
+## Licença
+
+MIT. Veja [LICENSE](LICENSE).
