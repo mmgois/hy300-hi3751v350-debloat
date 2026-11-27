@@ -1,74 +1,68 @@
 # HY300 projector (HiSilicon Hi3751V350): ADB, debloat and launcher swap
 
-> **English summary.** Some cheap "HY300" mini projectors are not the Allwinner H713 or Rockchip
-> RK3326 boards that most guides cover: this one is a **HiSilicon Hi3751V350** (`bigfish`),
-> Android 12 `userdebug`. Developer options are blocked and USB is host-only, but **network ADB
-> is already open on port 13111 with no authentication**. This repo documents how it was found,
-> how the Home button was pointed at Projectivy (`persist.sys.home.selectpkg` + `com.jm.jmlauncher`),
-> what was removed, and a **fake YouTube app** shipped from the factory that silently installs
-> other apps. The full guide below is in Brazilian Portuguese.
+A guide to what was done on a mini projector sold as "HY300" to make it lighter, replace the home
+screen and remove suspicious factory apps. Everything was done over ADB, without root and without
+opening the device. Tested on a single unit, in November 2026.
 
-Guia do que foi feito num mini projetor vendido como "HY300", para deixá-lo mais leve, trocar a
-tela inicial e remover apps suspeitos de fábrica. Tudo foi feito por ADB, sem root e sem abrir o
-aparelho. Testado em um único aparelho, em novembro de 2026.
+## Identification
 
-## Identificação
+Check this before going further: the "HY300" guides online cover different boards sold under the
+same name (Allwinner H713, Rockchip RK3326, Amlogic T950S) and do not apply to this one.
 
-Confira antes de seguir: os guias de "HY300" na internet tratam de placas diferentes com o mesmo
-nome (Allwinner H713, Rockchip RK3326, Amlogic T950S) e não se aplicam a esta.
-
-| Propriedade | Valor |
+| Property | Value |
 |---|---|
 | `ro.product.device` | `Hi3751V350` |
 | `ro.board.platform` | `bigfish` |
-| Android | 12, build `userdebug` |
-| `ro.build.fingerprint` | `google/redfin/...` (finge ser um Pixel 5) |
+| Android | 12, `userdebug` build |
+| `ro.build.fingerprint` | `google/redfin/...` (pretends to be a Pixel 5) |
 | RAM | ~2 GB |
-| Build visível no menu | `JM_P1-2026...` |
-| Launcher de fábrica | `com.tcl.movieark.launcher`, `com.htc.htclauncherhighenglishd08` |
+| Build shown in the menu | `JM_P1-2026...` |
+| Factory launcher | `com.tcl.movieark.launcher`, `com.htc.htclauncherhighenglishd08` |
 
-Sem ADB, um sinal desta variante: o easter egg da versão do Android mostra um relógio (Android 12)
-e **não** existem pacotes `com.rockchip.*` nem `com.hotack.*` (verificável pelo Activity Launcher).
+Without ADB, a sign of this variant: the Android version easter egg shows a clock (Android 12),
+and there are **no** `com.rockchip.*` or `com.hotack.*` packages (you can check with Activity
+Launcher).
 
-## O que não funciona nesta placa
+## What does not work on this board
 
-- **Opções do desenvolvedor**: tocar 7× em "Build do SO do Android TV" ou no nome do modelo não
-  faz nada. Abrir `DevelopmentActivity` pelo Activity Launcher mostra "as opções do desenvolvedor
-  não estão disponíveis para este usuário".
-- **ADB por USB**: a porta USB-A do projetor é só *host*. Lê pendrive **em FAT32** (exFAT não
-  aparece), mas não fala ADB com um PC. Um cabo USB A-A liga os 5 V dos dois lados e chega a
-  alimentar a placa pelo PC: **não deixe o cabo A-A ligado com o projetor na tomada**.
-- **Recovery** pelos botões (segurar power ao ligar, power + volume, etc.): nada funcionou.
-- O menu "Depurar USB – Ativo" do fabricante não abre a porta 5555.
+- **Developer options**: tapping "Android TV OS build" or the model name 7 times does nothing.
+  Opening `DevelopmentActivity` from Activity Launcher shows "developer options are not available
+  for this user".
+- **ADB over USB**: the projector's USB-A port is host-only. It reads **FAT32** flash drives (exFAT
+  does not show up), but it does not speak ADB to a PC. A USB A-A cable connects the 5 V lines of
+  both sides and can even power the board from the PC: **do not leave an A-A cable connected while
+  the projector is plugged into the wall**.
+- **Recovery** via buttons (holding power at boot, power + volume, etc.): nothing worked.
+- The vendor's "USB debugging – On" menu does not open port 5555.
 
-## 1. Encontrar o ADB (porta 13111)
+## 1. Find ADB (port 13111)
 
-O ADB pela rede **já vem ligado de fábrica**, numa porta fora do padrão e sem autenticação:
+Network ADB **is enabled from the factory**, on a non-standard port and with no authentication:
 
 ```
 persist.adb.tcp.port=13111
 service.adb.tcp.port=13111
-ro.adb.secure=        (vazio: nenhuma confirmação na tela)
+ro.adb.secure=        (empty: no confirmation prompt on screen)
 ```
 
-Para encontrar a porta em outro aparelho, use [`scan-adb.sh`](scan-adb.sh): ele varre as portas
-TCP e testa cada uma com `adb` (serviços que não são ADB aceitam a conexão, mas ficam `offline`).
+To find the port on another unit, use [`scan-adb.sh`](scan-adb.sh): it scans the TCP ports and
+tests each one with `adb` (non-ADB services accept the connection but stay `offline`).
 
 ```bash
-./scan-adb.sh 192.168.0.50            # todas as portas (leva alguns minutos)
+./scan-adb.sh 192.168.0.50            # all ports (takes a few minutes)
 ./scan-adb.sh 192.168.0.50 13000 14000
 adb connect 192.168.0.50:13111
 ```
 
-As demais portas abertas (11022, 11101–11104, 4321, 38400 e algumas altas aleatórias) pertencem a
-serviços do sistema (uid `system`/`root`: Miracast e serviços de TV da HiSilicon), não a apps de
-terceiros.
+The other open ports (11022, 11101–11104, 4321, 38400 and a few random high ones) belong to
+system services (uid `system`/`root`: Miracast and HiSilicon TV services), not to third-party
+apps.
 
-Exemplos abaixo usam `adb -s <ip>:13111 shell ...`, abreviado como `adb shell`.
+The examples below use `adb -s <ip>:13111 shell ...`, shortened to `adb shell`.
 
-## 2. Animações desligadas
+## 2. Disable animations
 
-O maior ganho percebido na navegação:
+The biggest perceived speed-up when navigating:
 
 ```bash
 adb shell settings put global window_animation_scale 0
@@ -76,13 +70,13 @@ adb shell settings put global transition_animation_scale 0
 adb shell settings put global animator_duration_scale 0
 ```
 
-## 3. Trocar a tela inicial pelo Projectivy
+## 3. Replace the home screen with Projectivy
 
-Instale o **Projectivy Launcher** pela Play Store. Só definir o launcher padrão **não basta**:
-o firmware foi modificado para que o botão Home envie a categoria própria
-`android.intent.category.HOME.JM`, atendida apenas pelo `com.jm.jmlauncher`. Ele é um
-"despachante" que abre o pacote definido em `persist.sys.home.selectpkg` (de fábrica, o launcher
-HTC). Como o build é `userdebug`, `setprop` funciona pelo `adb shell`:
+Install **Projectivy Launcher** from the Play Store. Setting it as the default launcher **is not
+enough**: the firmware was modified so the Home button sends its own category,
+`android.intent.category.HOME.JM`, which only `com.jm.jmlauncher` handles. It is a "dispatcher"
+that opens the package set in `persist.sys.home.selectpkg` (the HTC launcher by default). Since
+the build is `userdebug`, `setprop` works from `adb shell`:
 
 ```bash
 adb shell cmd package set-home-activity --user 0 com.spocky.projengmenu/.ui.home.MainActivity
@@ -91,140 +85,143 @@ adb shell pm disable-user --user 0 com.tcl.movieark.launcher
 adb shell pm disable-user --user 0 com.htc.htclauncherhighenglishd08
 ```
 
-> ⚠️ **Nunca desative `com.jm.jmlauncher`.** Sem ele o Home cai no `FallbackHome` ("User unlocked
-> but no home") e a tela fica preta. Se acontecer: `adb shell pm enable com.jm.jmlauncher`.
+> ⚠️ **Never disable `com.jm.jmlauncher`.** Without it, Home falls back to `FallbackHome` ("User
+> unlocked but no home") and the screen goes black. If that happens:
+> `adb shell pm enable com.jm.jmlauncher`.
 
-A configuração sobreviveu a reinícios.
+The setting survived reboots.
 
-## 4. Remover e desativar apps
+## 4. Remove and disable apps
 
-**Desinstalados** (vinham de fábrica em `/data/app`, então a remoção é limpa; um reset de fábrica
-os traz de volta):
+**Uninstalled** (they shipped in `/data/app`, so removal is clean; a factory reset brings them
+back):
 
-| Pacote | O que é |
+| Package | What it is |
 |---|---|
-| `com.google.android.youtube.tv` (falso) | ver [seção 5](#5-youtube-falso-de-fábrica) |
-| `com.tv.flarehub` | "Flarehub", 100 MB, assinado por `CN=metax_os` |
-| `com.unitvnet.tvod` | UniTV, IPTV pirata |
-| `com.eusfu.appstore` | loja de apps paralela |
-| `com.tv9c.upgrade` | atualizador do fabricante (conectava a um IP da Alibaba Cloud) |
-| `com.tcl.browser` | navegador TCL |
-| `com.mobisystems.office` | Office pré-instalado |
-| `com.bozee.usbdisplay` | espelhamento de tela, rodando o tempo todo (~27 MB de RAM) |
-| `com.netflix.mediaclient`, `com.disney.disneyplus`, `com.amazon.amazonvideo.livingroom` | não usados |
+| `com.google.android.youtube.tv` (fake) | see [section 5](#5-fake-factory-youtube-app) |
+| `com.tv.flarehub` | "Flarehub", 100 MB, signed by `CN=metax_os` |
+| `com.unitvnet.tvod` | UniTV, pirate IPTV |
+| `com.eusfu.appstore` | third-party app store |
+| `com.tv9c.upgrade` | vendor updater (connected to an Alibaba Cloud IP) |
+| `com.tcl.browser` | TCL browser |
+| `com.mobisystems.office` | preinstalled Office |
+| `com.bozee.usbdisplay` | screen mirroring, always running (~27 MB of RAM) |
+| `com.netflix.mediaclient`, `com.disney.disneyplus`, `com.amazon.amazonvideo.livingroom` | not used |
 
 ```bash
-adb uninstall <pacote>
+adb uninstall <package>
 ```
 
-**Desativados** (apps de sistema; reversível com `pm enable`):
+**Disabled** (system apps; reversible with `pm enable`):
 
-| Pacote | Motivo |
+| Package | Reason |
 |---|---|
-| `com.tcl.movieark.launcher`, `com.htc.htclauncherhighenglishd08` | launchers substituídos |
-| `com.define.shellservice` | serviço exportado, roda como `system` e aceita a ação `com.define.shellservice.shellcommand` (executa comandos). Nada do projetor deixou de funcionar sem ele: trapézio, foco, troca de fonte e imagem testados |
+| `com.tcl.movieark.launcher`, `com.htc.htclauncherhighenglishd08` | replaced launchers |
+| `com.define.shellservice` | exported service that runs as `system` and accepts the `com.define.shellservice.shellcommand` action (runs commands). Nothing on the projector broke without it: keystone, focus, input switching and picture settings were tested |
 
 ```bash
 adb shell pm disable-user --user 0 com.define.shellservice
 ```
 
-**Acessibilidade pré-autorizada para um pacote inexistente.** A configuração de fábrica autoriza
-`com.android.nfx/com.android.nfx.NfxAccessibilityService`, que não está instalado. Se um app com
-esse nome fosse instalado (por um atualizador, por exemplo), ganharia na hora permissão para ler a
-tela e simular toques. Mantenha só o serviço da HiSilicon:
+**Accessibility pre-authorized for a package that does not exist.** The factory settings authorize
+`com.android.nfx/com.android.nfx.NfxAccessibilityService`, which is not installed. If an app with
+that name were installed (by an updater, for example), it would immediately get permission to read
+the screen and simulate input. Keep only the HiSilicon service:
 
 ```bash
 adb shell settings put secure enabled_accessibility_services \
   com.hisilicon.rmservice/com.hisilicon.rmservice.HiRMService
 ```
 
-**Não mexa** em: `com.jm.jmlauncher`, `com.htc.htcsettings` (configurações), `com.softwinner.tcorrection`
-(trapézio), `com.hisilicon.*` (serviços de TV, entrada HDMI, controle remoto), `com.vendor.vnaudiomanager`
-(áudio).
+**Do not touch**: `com.jm.jmlauncher`, `com.htc.htcsettings` (settings), `com.softwinner.tcorrection`
+(keystone), `com.hisilicon.*` (TV services, HDMI input, remote control), `com.vendor.vnaudiomanager`
+(audio).
 
-## 5. YouTube falso de fábrica
+## 5. Fake factory YouTube app
 
-O app "YouTube" pré-instalado usa o nome de pacote do oficial (`com.google.android.youtube.tv`,
-versão `2026.06.3018`), mas:
+The preinstalled "YouTube" app uses the official package name (`com.google.android.youtube.tv`,
+version `2026.06.3018`), but:
 
-- tem **2,3 MB** (o oficial tem ~50 MB) e código de outro desenvolvedor (`com.wuliang.*`);
-- só abre o Flarehub apontando para o site: `flarehubtv://{"type":6,"url":"https://www.youtube.com/tv"}`;
-- contém código de **instalação silenciosa** de apps (`com.google.android.youtube.tv.ACTION_SILENCE_INSTALL`,
-  `PackageInstaller`, `initSilenceInstalledReceiver`) — ao desinstalar o Flarehub, ele pedia para
-  reinstalá-lo.
+- it is **2.3 MB** (the official one is ~50 MB) and contains another developer's code (`com.wuliang.*`);
+- it only opens Flarehub pointed at the website: `flarehubtv://{"type":6,"url":"https://www.youtube.com/tv"}`;
+- it contains code to **silently install** apps (`com.google.android.youtube.tv.ACTION_SILENCE_INSTALL`,
+  `PackageInstaller`, `initSilenceInstalledReceiver`); after Flarehub was uninstalled, it asked to
+  reinstall it.
 
-| Arquivo | SHA-256 |
+| File | SHA-256 |
 |---|---|
-| YouTube falso (`base.apk`) | `7cdcbeff7866db75333043ddae3158c4d26a00720b0828c92f755e5dca2ea336` |
+| Fake YouTube (`base.apk`) | `7cdcbeff7866db75333043ddae3158c4d26a00720b0828c92f755e5dca2ea336` |
 | Flarehub (`base.apk`) | `adc537151adc19d5301dc64c6f9a09de1279e5284f1654cc44cc304e9ccc58a9` |
 
-Para conferir no seu aparelho:
+To check your unit:
 
 ```bash
 adb shell pm path com.google.android.youtube.tv
 adb shell dumpsys package com.google.android.youtube.tv | grep -E 'versionName|installerPackageName'
 ```
 
-Se o APK tiver poucos MB e não houver `installerPackageName=com.android.vending`, é o falso.
-Desinstale-o e instale o oficial pela Play Store ("YouTube for Android TV", Google LLC).
+If the APK is only a few MB and there is no `installerPackageName=com.android.vending`, it is the
+fake. Uninstall it and install the official one from the Play Store ("YouTube for Android TV",
+Google LLC).
 
-Para procurar outros apps falsos, compare as chaves de assinatura: um app com nome do Google
-assinado com chave diferente dos outros apps do Google é suspeito. Neste aparelho, Play Services,
-Play Store, GSF, Chromecast integrado e Chrome tinham chaves coerentes; só o YouTube destoava.
+To look for other fake apps, compare signing keys: an app with a Google name signed with a key
+different from the other Google apps is suspicious. On this unit, Play Services, Play Store, GSF,
+built-in Chromecast and Chrome had consistent keys; only YouTube stood out.
 
-## 6. Apps instalados no lugar
+## 6. Apps installed instead
 
-- **Projectivy Launcher**, **YouTube for Android TV** e **Symfonium** (cliente Subsonic/Navidrome;
-  `app.symfonik.music.player`) pela Play Store. Compras feitas no celular valem no projetor se a
-  conta Google for a mesma.
-- **Jellyfin for Android TV** pelo [GitHub oficial](https://github.com/jellyfin/jellyfin-androidtv/releases)
-  com `adb install -r jellyfin-androidtv-<versão>-release.apk` (sem atualização automática).
+- **Projectivy Launcher**, **YouTube for Android TV** and **Symfonium** (Subsonic/Navidrome client;
+  `app.symfonik.music.player`) from the Play Store. Purchases made on the phone carry over to the
+  projector if the Google account is the same.
+- **Jellyfin for Android TV** from the [official GitHub](https://github.com/jellyfin/jellyfin-androidtv/releases)
+  with `adb install -r jellyfin-androidtv-<version>-release.apk` (no automatic updates).
 
-## Resultado e considerações
+## Results and notes
 
-- Saíram da memória uns 40–60 MB fixos (launcher TCL 53 MB → Projectivy ~41 MB; `usbdisplay` 27 MB;
-  processos que acordavam em segundo plano). O armazenamento livre subiu de 2,6 para 2,9 GB, já
-  contando os apps novos.
-- **O hardware continua sendo o gargalo**: com Jellyfin (~95 MB) e Symfonium (~70 MB) abertos, o
-  aparelho usa ~350 MB de swap. Use um app pesado por vez. Para desempenho de verdade, um stick HDMI.
-- O **Chrome** de fábrica é legítimo, mas a Play Store o considera "não compatível" e ele fica preso
-  na versão 133 (início de 2025), sem correções de segurança. Use só em sites conhecidos.
-- **O ADB fica aberto, sem senha, para toda a rede local** e não há como desligá-lo de forma
-  persistente (num Redmi Projector Lite com o mesmo chip, `setprop` volta ao valor original após
-  reiniciar). Deixe o projetor numa **rede de convidados**, isolada dos outros aparelhos.
-- O chip é diferente, mas os apps de fábrica (YouTube falso, loja paralela, IPTV pirata) seguem o
-  padrão das denúncias de malware em projetores baratos (BADBOX 2.0, proxy residencial). Não foi
-  encontrado tráfego de proxy neste aparelho, mas o Flarehub não foi analisado por dentro.
+- About 40–60 MB of resident memory was freed (TCL launcher 53 MB → Projectivy ~41 MB; `usbdisplay`
+  27 MB; processes that woke up in the background). Free storage went from 2.6 to 2.9 GB, already
+  counting the new apps.
+- **The hardware is still the bottleneck**: with Jellyfin (~95 MB) and Symfonium (~70 MB) open,
+  the device uses ~350 MB of swap. Use one heavy app at a time. For real performance, use an HDMI
+  stick.
+- The factory **Chrome** is legitimate, but the Play Store considers it "not compatible" and it is
+  stuck on version 133 (early 2025), with no security fixes. Use it only on sites you trust.
+- **ADB stays open, with no password, to the whole local network**, and there is no way to turn it
+  off persistently (on a Redmi Projector Lite with the same chip, `setprop` reverts to the original
+  value after a reboot). Keep the projector on a **guest network**, isolated from other devices.
+- The chip is different, but the factory apps (fake YouTube, third-party store, pirate IPTV) follow
+  the pattern of malware reports on cheap projectors (BADBOX 2.0, residential proxy). No proxy
+  traffic was found on this unit, but Flarehub was not analyzed internally.
 
-## Como desfazer
+## How to undo
 
 ```bash
-adb shell pm enable <pacote>                                   # reativar
+adb shell pm enable <package>                                  # re-enable
 adb shell setprop persist.sys.home.selectpkg com.htc.htclauncherhighenglishd08
-adb shell settings put global window_animation_scale 1         # idem para as outras duas
+adb shell settings put global window_animation_scale 1         # same for the other two
 ```
 
-Apps desinstalados de `/data` só voltam com reset de fábrica.
+Apps uninstalled from `/data` only come back with a factory reset.
 
-## Referências
+## References
 
-- [Free My TV PR #230](https://github.com/simbasjungles/free-my-tv/pull/230): o mesmo mecanismo
-  `HOME.JM` / `persist.sys.home.selectpkg` numa placa Amlogic.
+- [Free My TV PR #230](https://github.com/simbasjungles/free-my-tv/pull/230): the same
+  `HOME.JM` / `persist.sys.home.selectpkg` mechanism on an Amlogic board.
 - [hy300t-android-guia](https://github.com/mariorodriguesoficial/hy300t-android-guia): HY300-T
-  (Amlogic T950S); avisa para nunca desativar o `com.jm.jmlauncher`.
+  (Amlogic T950S); warns never to disable `com.jm.jmlauncher`.
 - [cleanyourtv #1178](https://github.com/Gathin23/cleanyourtv/issues/1178): Redmi Projector Lite,
-  mesmo chip Hi3751V350, ADB aberto sem autenticação e impossível de desligar.
-- [BruBread/Hy300-Root](https://github.com/BruBread/Hy300-Root) (RK3326) e
+  same Hi3751V350 chip, ADB open without authentication and impossible to turn off.
+- [BruBread/Hy300-Root](https://github.com/BruBread/Hy300-Root) (RK3326) and
   [HY300_PRO.md](https://gist.github.com/probonopd/3ad6b7777caea1503f00d5fe7710ad06) (Allwinner H713):
-  outras placas vendidas como HY300.
+  other boards sold as HY300.
 - [FBI / BADBOX 2.0](https://www.bleepingcomputer.com/news/security/fbi-badbox-20-android-malware-infects-millions-of-consumer-devices/).
 
-## Aviso
+## Disclaimer
 
-Feito num aparelho próprio. Use por sua conta e risco: nada aqui mexe no bootloader ou nas
-partições do sistema, mas desativar o pacote errado pode deixar a tela inicial preta até ser
-revertido pelo ADB.
+Done on a device I own. Use at your own risk: nothing here touches the bootloader or system
+partitions, but disabling the wrong package can leave the home screen black until it is reverted
+over ADB.
 
-## Licença
+## License
 
-MIT. Veja [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
